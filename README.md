@@ -18,3 +18,5 @@ huggingface-cli login
 # Enter huggingface token
 python result.py
 ```
+### colab test
+download `inference_test.ipynb` and run it on google colab
