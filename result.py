@@ -147,8 +147,8 @@ def main():
         torch_dtype=torch.float16,
         device_map=device,
     )
-    from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-    model.config._attn_implementation = "flash_attention"
+    #from flash_attn.flash_attn_interface import flash_attn_unpadded_func
+    #model.config._attn_implementation = "flash_attention"
     #####################################
     
 
