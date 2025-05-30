@@ -89,7 +89,8 @@ threadpoolctl==3.5.0
 tokenizers==0.20.3
 torch==1.13.1
 torch-pruning==1.5.2
-torchaudio==0.13.1
+torchaudio
+# torchaudio==0.13.1
 torchprofile==0.0.4
 torchvision==0.14.1
 tqdm==4.67.0
