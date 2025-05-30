@@ -62,11 +62,11 @@ def generate(model, input_ids, past_key_values, max_new_tokens):
 
 def apply_mlp_pruning(model, prune_ratio=0.3):
     """
-    在每个 transformer layer 的 MLP 中间维度上，剪掉前 prune_ratio 比例的通道。
-    - prune_ratio: 保留比例之外要剪掉的比例，例如 0.3 表示剪掉 30%。
+    Prune the first `prune_ratio` proportion of channels in the intermediate dimension of each transformer's MLP layer.
+    - prune_ratio: The proportion to prune out, e.g., 0.3 means pruning 30%.
     """
     from transformers.modeling_utils import prune_linear_layer
-    # 1) unwrap PEFT/DeepSpeed/DataParallel
+    # 1) Unwrap PEFT / DeepSpeed / DataParallel wrappers
     transformer = model
     if hasattr(transformer, "module"):
         transformer = transformer.module
@@ -75,74 +75,74 @@ def apply_mlp_pruning(model, prune_ratio=0.3):
     if hasattr(transformer, "model") and hasattr(transformer.model, "layers"):
         transformer = transformer.model
 
-    # 2) 对每一层 MLP 做 prune
+    # 2) Prune MLP in each layer
     for layer in transformer.layers:
-        # 三个投影：gate_proj (dim D_ff→D)，up_proj (dim D_ff→D)，down_proj (dim D→D_ff)
+        # gate_proj (dim D_ff→D), up_proj (dim D_ff→D), down_proj (dim D→D_ff)
         gate = layer.mlp.gate_proj
         up   = layer.mlp.up_proj
         down = layer.mlp.down_proj
 
-        # 以 up_proj 的输出维度 D_ff 作为剪枝基准
+        # Use the output dim D_ff of up_proj as the pruning base
         D_ff = up.weight.shape[0]
-        k = int(D_ff * prune_ratio)             # 要剪的通道数
+        k = int(D_ff * prune_ratio)  # Number of channels to prune
         if k <= 0:
             continue
 
         idxs = torch.arange(k, device=up.weight.device)
 
-        # gate_proj 和 up_proj 在 dim=0（输出维度）上 prune
+        # Prune gate_proj and up_proj along dim=0 (output dimension)
         prune_linear_layer(gate, idxs, dim=0)
         prune_linear_layer(up,   idxs, dim=0)
 
-        # down_proj 在 dim=1（输入维度）上 prune
+        # Prune down_proj along dim=1 (input dimension)
         prune_linear_layer(down, idxs, dim=1)
 
-    # 3) （可选）如果有 ffn_hidden_size 在 config 里，也同步减小
+    # 3) (Optional) Reduce ffn_hidden_size in config if it exists
     cfg = transformer.config
     if hasattr(cfg, "ffn_hidden_size"):
         cfg.ffn_hidden_size = int(cfg.ffn_hidden_size * (1 - prune_ratio))
 
-    print(f"[MLP Prune] 剪掉每层 {prune_ratio*100:.0f}% MLP 隐藏通道")
+    print(f"[MLP Prune] Pruned {prune_ratio*100:.0f}% of hidden channels from each MLP layer")
 
 def apply_head_pruning(model, heads_per_layer=2):
     """
-    在每个 attention layer 里，剪掉前 heads_per_layer 个 heads。
-    自动 unwrap PEFT/DeepSpeed/DataParallel，然后对真正的 transformer.layers 生效。
+    Prune the first `heads_per_layer` attention heads in each attention layer.
+    Automatically unwraps PEFT / DeepSpeed / DataParallel and applies to transformer.layers.
     """
     from transformers.modeling_utils import prune_linear_layer
-    # 1) Unwrap 各种包装器，得到底层有 .layers 的对象
+    # 1) Unwrap all wrappers to get the object with .layers
     transformer = model
     if hasattr(transformer, "module"):        # DataParallel / DeepSpeed Engine
         transformer = transformer.module
-    if hasattr(transformer, "base_model"):    # PEFT 包装器
+    if hasattr(transformer, "base_model"):    # PEFT wrapper
         transformer = transformer.base_model
     if hasattr(transformer, "model") and hasattr(transformer.model, "layers"):
         transformer = transformer.model
 
     if not hasattr(transformer, "layers"):
-        raise AttributeError(f"[HeadPrune] 无法在 {type(transformer)} 上找到 .layers")
+        raise AttributeError(f"[HeadPrune] Cannot find .layers in {type(transformer)}")
 
-    # 2) 读取当前 head 数与 head_dim
+    # 2) Get current number of heads and head dimension
     config    = transformer.config
     num_heads = config.num_attention_heads
     head_dim  = config.hidden_size // num_heads
 
-    # 3) 计算要剪掉的 feature index
+    # 3) Calculate feature indices to prune
     heads = list(range(heads_per_layer))
     prune_idxs = [h * head_dim + i for h in heads for i in range(head_dim)]
     prune_idx_tensor = torch.tensor(sorted(prune_idxs), dtype=torch.long, device=transformer.layers[0].self_attn.q_proj.weight.device)
 
-    # 4) 对每层的 Q/K/V/O 投影做 prune
+    # 4) Prune Q/K/V/O projections in each layer
     for layer in transformer.layers:
         attn = layer.self_attn
-        for proj in ("q_proj","k_proj","v_proj"):
+        for proj in ("q_proj", "k_proj", "v_proj"):
             prune_linear_layer(getattr(attn, proj), prune_idx_tensor, dim=0)
-        # O 投影要在 dim=1 上 prune
+        # For O projection, prune along dim=1
         prune_linear_layer(attn.o_proj, prune_idx_tensor, dim=1)
 
-    # 5) 更新 config
+    # 5) Update config
     config.num_attention_heads = num_heads - heads_per_layer
-    print(f"[HeadPrune] 每层剪掉 {heads_per_layer} 个 heads；新 num_attention_heads = {config.num_attention_heads}")
+    print(f"[HeadPrune] Pruned {heads_per_layer} heads per layer; new num_attention_heads = {config.num_attention_heads}")
 
 def apply_flash_attn_patch(model):
     from flash_attn import flash_attn_func
@@ -252,6 +252,9 @@ def main():
     # Quant
     quant_config = get_quant_config(model)
     AutoHQQHFModel.quantize_model(model, quant_config=quant_config, compute_dtype=torch.float16, device=device)
+
+    # token pruning
+    apply_token_pruning(model, keep_ratio=0.8)
 
     # Lora
     from peft import get_peft_model, LoraConfig, TaskType
