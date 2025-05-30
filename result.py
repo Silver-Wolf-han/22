@@ -329,7 +329,7 @@ def main():
     AutoHQQHFModel.quantize_model(model, quant_config=quant_config, compute_dtype=torch.float16, device=device)
 
     # token pruning
-    apply_token_pruning(model, keep_ratio=0.8)
+    # apply_token_pruning(model, keep_ratio=0.8)
 
     # Lora
     from peft import get_peft_model, LoraConfig, TaskType
