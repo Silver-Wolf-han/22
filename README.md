@@ -1,5 +1,8 @@
 # 22
 
+https://github.com/Silver-Wolf-han/22/tree/f35fef14af3b4671239e59f648ba048e20072fc6
+is final version of pruning + HQQ + compile + Lora
+
 ### download and upzip
 ```=bash
 curl -L -o commit-f35fef1.zip https://github.com/Silver-Wolf-han/22/archive/f35fef14af3b4671239e59f648ba048e20072fc6.zip
