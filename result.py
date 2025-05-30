@@ -15,9 +15,9 @@ from hqq.utils.patching import recommended_inductor_config_setter
 
 from quant_cfg import get_quant_config
 
-from huggingface_hub import login
+# from huggingface_hub import login
 
-login(token="")
+# login(token="")
 
 from peft import PeftModel
 

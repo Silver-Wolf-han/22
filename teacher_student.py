@@ -12,9 +12,9 @@ from datasets import load_dataset
 import torch
 from datasets import load_dataset, load_from_disk
 from peft import get_peft_model, LoraConfig, TaskType
-from huggingface_hub import login
+# from huggingface_hub import login
 
-login(token="")
+# login(token="")
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
