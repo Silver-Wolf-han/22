@@ -39,7 +39,7 @@ MarkupSafe==2.1.5
 matplotlib==3.7.5
 # mkl-fft @ file:///croot/mkl_fft_1695058164594/work
 # mkl-random @ file:///croot/mkl_random_1695059800811/work
-mkl-service==2.4.0
+mkl-service#==2.4.0
 mpmath==1.3.0
 msgpack==1.1.0
 multidict==6.1.0
