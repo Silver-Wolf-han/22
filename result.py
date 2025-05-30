@@ -1,27 +1,20 @@
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+# Run the teacher_student.py first (to get the distilled model)
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForCausalLM, StaticCache
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm.auto import tqdm
 from datasets import load_dataset
 import random
 import numpy as np
 
-from hqq_utils import AutoHQQHFModel, get_size_of_model
-from hqq.utils.patching import recommended_inductor_config_setter
+from huggingface_hub import login
 
-from quant_cfg import get_quant_config
+login(token="")
 
-
-#####################################################################
-# === SPEC NOTICE ===
-# Only "load model" and "generate" function selection can be modified.
-# DO NOT change PPL calculation, timing, or throughput logic.
-#####################################################################
-
-# === (Optional) Define your own custom generate function. ===
-# This is useful if you want full control over KV cache and generation steps.
-# You can modify this function to suit your needs.
-# By default, we use model.generate() for simplicity and general use.
+from peft import PeftModel
 
 def generate(model, input_ids, past_key_values, max_new_tokens):
     input_ids = input_ids.clone()
@@ -264,16 +257,16 @@ def apply_flash_attn_patch(model):
 
 def evaluate_ppl(model, tokenizer, device="cuda:0"):
     test_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-    
+
     test_enc = tokenizer("\n\n".join(test_dataset["text"]), return_tensors="pt")
     model.seqlen = 2048
     test_enc = test_enc.input_ids.to(device)
-    
+
     nsamples = test_enc.numel() // model.seqlen
-    nlls = []  
+    nlls = []
     for i in tqdm(range(nsamples), desc="Evaluating..."):
         batch = test_enc[:, (i * model.seqlen):((i + 1) * model.seqlen)]
-        
+
         with torch.no_grad():
             lm_logits = model(batch).logits
 
@@ -286,38 +279,37 @@ def evaluate_ppl(model, tokenizer, device="cuda:0"):
         nlls.append(neg_log_likelihood)
 
     ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
-    
+
     return ppl.item()
+
 
 def main():
     ############## Set Up ##############
+    # make sure to run the teacher_student.py first and load the distilled_student_lora directory where saved the model weight.
     torch.manual_seed(0)
     random.seed(0)
-    recommended_inductor_config_setter()
-    
+
     max_new_tokens = 256    # Number of new tokens to generate
     device = 'cuda:0'
-    backend = 'gemlite'
-    
-    ### === TODO: Load your model (you may change this part) ===
-    model_name = "meta-llama/Llama-3.2-3B-Instruct"   
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        device_map=device,
-    )
-    #from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-    #model.config._attn_implementation = "flash_attention"
-    #####################################
-    
 
-    model.eval() 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    
-    # === (Optional) Uncomment the following lines if using the custom generate() function. ===
+    # === Load distilled tokenizer (by using LoRA to train the student model) ===
+    tokenizer = AutoTokenizer.from_pretrained("./distilled_student_lora")
+    tokenizer.pad_token = tokenizer.eos_token
 
+    # === Load distilled model (TinyLlama) ===
+    base_model = AutoModelForCausalLM.from_pretrained(
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    ).to(device)
+    base_model.eval()
+
+    # === Load LoRA distilled student ===
+    model = PeftModel.from_pretrained(base_model, "./distilled_student_lora").to(device)
+    model.eval()
+    model = model.half()    # force full float16
+    model = torch.compile(model)
+
+    # Optional: enable prefill_forward if custom generate() is used
     model.prefill_forward = model.forward
-    model.forward = torch.compile(model.forward, mode='max-autotune', dynamic=False, fullgraph=True)
 
     # Purning
     apply_head_pruning(model, heads_per_layer=2)
@@ -328,65 +320,45 @@ def main():
     quant_config = get_quant_config(model)
     AutoHQQHFModel.quantize_model(model, quant_config=quant_config, compute_dtype=torch.float16, device=device)
 
-    # token pruning
-    # apply_token_pruning(model, keep_ratio=0.8)
-
-    # Lora
-    from peft import get_peft_model, LoraConfig, TaskType
-    lora_config = LoraConfig(
-        r=8,                      # Low-rank dim
-        lora_alpha=16,            # Scaling factor
-        target_modules=["q_proj", "v_proj"],  # Tweak depending on model architecture
-        lora_dropout=0.0,
-        bias="none",
-        task_type=TaskType.CAUSAL_LM
-    )
-
-    model = get_peft_model(model, lora_config)
-    model.eval()
-    model.merge_and_unload()  # Merge LoRA weights for inference only
-
-
     from hqq.utils.patching import prepare_for_inference
     prepare_for_inference(model, backend=backend) 
     torch.cuda.empty_cache()
     torch.backends.cuda.matmul.allow_tf32 = True
-    
+
     warmup_prompt = "Explain what AI is."
-    inputs = tokenizer(warmup_prompt, return_tensors="pt", return_attention_mask=False).to(device)
+    inputs = tokenizer(warmup_prompt, return_tensors="pt").to(device)
     input_ids = inputs["input_ids"]
-    # attention_mask = inputs["attention_mask"]
-    
+    attention_mask = inputs["attention_mask"]
+
     # === (Optional) Set up StaticCache for manual KV cache management ===
+    from transformers import StaticCache
     past_key_values = StaticCache(
-        config=model.config, 
-        max_batch_size=1, 
-        max_cache_len=max_new_tokens + 16, 
-        device=model.device, 
-        dtype=torch.float16
-    )
+         config=model.config,
+         max_batch_size=1,
+         max_cache_len=max_new_tokens + 16,
+         device=model.device,
+         dtype=torch.float16
+     )
     ####################################################################
-    
-    # from torch.cuda import amp
 
     for i in tqdm(range(5), desc="Warm Up..."):
-        #  === Default: use model.generate() for end-to-end warm-up === 
-        # _ = model.generate(
-        #     input_ids=input_ids,
-        #      attention_mask=attention_mask,
-        #     max_new_tokens=max_new_tokens,
-        #     pad_token_id=tokenizer.eos_token_id,
-        # )
-        
+        #  === Default: use model.generate() for end-to-end warm-up ===
+        """
+        _ = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+        """
         # === (Optional) Use custom generate() if uncommented ===
-        # with amp.autocast(enabled=True):
         generated = generate(model, input_ids, past_key_values, max_new_tokens)
         past_key_values.reset()
-        
+
     prompt = "How to learn a new language?"
-    inputs = tokenizer(prompt, return_tensors="pt", return_attention_mask=False).to(device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
     input_ids = inputs["input_ids"]
-    # attention_mask = inputs["attention_mask"]
+    attention_mask = inputs["attention_mask"]
     tputs = []
     time_record = []
     for _ in tqdm(range(10), desc="Test Inference"):
@@ -395,32 +367,31 @@ def main():
         end = torch.cuda.Event(enable_timing=True)
         start.record()
 
-        # === Default: Use model.generate() for end-to-end timing === 
-        # generated = model.generate(
-        #     input_ids=input_ids,
-        #     attention_mask=attention_mask,
-        #     max_new_tokens=max_new_tokens,
-        #     pad_token_id=tokenizer.eos_token_id,
-        # )
-        
+        # === Default: Use model.generate() for end-to-end timing ===
+        """
+        generated = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+        """
         # === Optional: Use custom generate() if uncommented ===
-        # with amp.autocast(enabled=True):
         generated = generate(model, input_ids, past_key_values, max_new_tokens)
         past_key_values.reset()
 
         end.record()
         torch.cuda.synchronize()
         elapsed_ms = start.elapsed_time(end)
-        # tput = max_new_tokens / (elapsed_ms / 1000)
-        tput = generated[0][input_ids.shape[1]:].shape[0]/(elapsed_ms / 1000)
+        tput = max_new_tokens / (elapsed_ms / 1000)
         time_record.append(elapsed_ms / 1000)
         tputs.append(tput)
-        
+
     response = tokenizer.decode(generated[0][input_ids.shape[1]:], skip_special_tokens=True)
     sorted_tputs = np.sort(tputs)[2:-2]
     org_tput = np.mean(sorted_tputs)
     print(f'Prompt: {prompt}\nResponse: {response}\n')
-    
+
     print(f'Time Record: {time_record}')
     print(f'Throughput Record: {tputs} toks/s\n')
 
@@ -428,7 +399,7 @@ def main():
     print(f'Throughput: {org_tput} toks/s')
     ppl = evaluate_ppl(model, tokenizer, device)
     print(f"Perplexity (PPL): {ppl}")
-    
+
     # Save results to CSV
     import csv
     rounded_tput = round(org_tput, 1)
@@ -439,6 +410,6 @@ def main():
         writer.writerow(["Id", "value"])
         writer.writerow([0, ppl])
         writer.writerow([1, rounded_tput])
-        
+
 if __name__ == '__main__':
     main()
