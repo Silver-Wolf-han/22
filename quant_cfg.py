@@ -8,12 +8,12 @@ def get_quant_config(model):
     
     for i in range(model.config.num_hidden_layers):
         quant_config[f'model.layers.{i}.self_attn.q_proj'] = config_8bits
-        quant_config[f'model.layers.{i}.self_attn.k_proj'] = config_8bits
-        quant_config[f'model.layers.{i}.self_attn.v_proj'] = config_8bits
-        quant_config[f'model.layers.{i}.self_attn.o_proj'] = config_8bits
+        quant_config[f'model.layers.{i}.self_attn.k_proj'] = config_4bits
+        quant_config[f'model.layers.{i}.self_attn.v_proj'] = config_4bits
+        quant_config[f'model.layers.{i}.self_attn.o_proj'] = config_4bits
         
-        quant_config[f'model.layers.{i}.mlp.gate_proj'] = config_4bits if i > 3 else config_8bits
-        quant_config[f'model.layers.{i}.mlp.up_proj'] = config_4bits if i > 3 else config_8bits
-        quant_config[f'model.layers.{i}.mlp.down_proj'] = config_4bits if i > 3 else config_8bits
+        quant_config[f'model.layers.{i}.mlp.gate_proj'] = config_4bits if i > 1 else config_8bits
+        quant_config[f'model.layers.{i}.mlp.up_proj'] = config_4bits if i > 1 else config_8bits
+        quant_config[f'model.layers.{i}.mlp.down_proj'] = config_4bits if i > 1 else config_8bits
         
     return quant_config
