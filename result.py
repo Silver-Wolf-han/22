@@ -60,6 +60,81 @@ def generate(model, input_ids, past_key_values, max_new_tokens):
 
     return input_ids
 
+import types
+def apply_token_pruning(model, keep_ratio=0.8):
+    """
+    Dynamic token dropping patch. Must be applied:
+      1) After head pruning
+      2) After model quantization
+      3) Before calling prepare_for_inference
+      4) Before torch.compile
+    """
+    base = getattr(model, "base_model", model)
+    transformer = getattr(base, "model", base)
+
+    for layer in transformer.layers:
+        orig_forward = layer.forward
+        orig_attn    = layer.self_attn
+
+        def new_forward(
+            self,
+            hidden_states,
+            position_ids=None,
+            position_embeddings=None,
+            attention_mask=None,
+            past_key_value=None,
+            output_attentions=False,
+            use_cache=False,
+            **kwargs
+        ):
+            # —— 1) Call self_attn once to try to get attn_weights ——
+            # Force output_attentions=True; if unsupported, only two outputs will be returned
+            attn_outputs = orig_attn(
+                hidden_states,
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
+                attention_mask=attention_mask,
+                past_key_value=past_key_value,
+                output_attentions=True,
+                use_cache=use_cache,
+                **kwargs
+            )
+
+            # 2) Branch based on number of returned items
+            if len(attn_outputs) == 3:
+                attn_out, present_kv, attn_weights = attn_outputs
+                # attn_weights: (batch, heads, seq_len, seq_len)
+                # Compute token importance scores (average across heads + sum over source tokens)
+                scores = attn_weights.mean(dim=1).sum(dim=-2)  # (batch, seq_len)
+                b, L = scores.shape
+                k = max(1, int(L * keep_ratio))
+                topk = torch.topk(scores, k=k, dim=-1).indices  # (batch, k)
+                # Build mask
+                mask = torch.zeros_like(scores, dtype=torch.bool)
+                for i in range(b):
+                    mask[i, topk[i]] = True
+                # Zero out less important tokens
+                hidden_states = hidden_states.masked_fill(~mask.unsqueeze(-1), 0.0)
+            else:
+                # If output_attentions not supported, use only two returned items
+                attn_out, present_kv = attn_outputs
+
+            # —— 3) Pass (possibly masked) hidden_states to original forward ——
+            return orig_forward(
+                hidden_states,
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
+                attention_mask=attention_mask,
+                past_key_value=present_kv if len(attn_outputs) >= 2 else past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                **kwargs
+            )
+
+        # Bind the new forward method to the layer
+        layer.forward = types.MethodType(new_forward, layer)
+
+
 def apply_mlp_pruning(model, prune_ratio=0.3):
     """
     Prune the first `prune_ratio` proportion of channels in the intermediate dimension of each transformer's MLP layer.
