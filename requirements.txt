@@ -7,10 +7,10 @@ annotated-types==0.7.0
 async-timeout==5.0.1
 attrs==25.3.0
 axial_positional_embedding==0.2.1
-Brotli @ file:///croot/brotli-split_1714483155106/work
+# Brotli @ file:///croot/brotli-split_1714483155106/work
 cachetools==5.5.0
-certifi @ file:///croot/certifi_1725551672989/work/certifi
-charset-normalizer @ file:///croot/charset-normalizer_1721748349566/work
+# certifi @ file:///croot/certifi_1725551672989/work/certifi
+# charset-normalizer @ file:///croot/charset-normalizer_1721748349566/work
 CoLT5-attention==0.11.1
 contourpy==1.1.1
 cycler==0.12.1
@@ -27,7 +27,7 @@ google-auth-oauthlib==1.0.0
 grpcio==1.67.1
 hjson==3.1.0
 huggingface-hub==0.26.2
-idna @ file:///croot/idna_1714398848350/work
+# idna @ file:///croot/idna_1714398848350/work
 importlib_metadata==8.5.0
 importlib_resources==6.4.5
 Jinja2==3.1.6
@@ -37,22 +37,22 @@ local-attention==1.9.15
 Markdown==3.7
 MarkupSafe==2.1.5
 matplotlib==3.7.5
-mkl-fft @ file:///croot/mkl_fft_1695058164594/work
-mkl-random @ file:///croot/mkl_random_1695059800811/work
+# mkl-fft @ file:///croot/mkl_fft_1695058164594/work
+# mkl-random @ file:///croot/mkl_random_1695059800811/work
 mkl-service==2.4.0
 mpmath==1.3.0
 msgpack==1.1.0
 multidict==6.1.0
 multiprocess==0.70.16
 ninja==1.11.1.3
-numpy @ file:///work/mkl/numpy_and_numpy_base_1682953417311/work
+# numpy @ file:///work/mkl/numpy_and_numpy_base_1682953417311/work
 nvidia-ml-py==12.570.86
 oauthlib==3.2.2
 packaging==24.2
 pandas==2.0.3
 patool==1.12
 peft==0.13.2
-pillow @ file:///croot/pillow_1721059439630/work
+# pillow @ file:///croot/pillow_1721059439630/work
 product_key_memory==0.2.11
 propcache==0.2.0
 protobuf==5.28.3
@@ -64,13 +64,13 @@ pyasn1_modules==0.4.1
 pydantic==2.10.6
 pydantic_core==2.27.2
 pyparsing==3.1.4
-PySocks @ file:///tmp/build/80754af9/pysocks_1605305779399/work
+# PySocks @ file:///tmp/build/80754af9/pysocks_1605305779399/work
 python-dateutil==2.9.0.post0
 pytz==2024.2
 PyYAML==6.0.2
 reformer-pytorch==1.4.4
 regex==2024.11.6
-requests @ file:///croot/requests_1721410876868/work
+# requests @ file:///croot/requests_1721410876868/work
 requests-oauthlib==2.0.0
 rsa==4.9
 safetensors==0.4.5
@@ -95,7 +95,7 @@ tqdm==4.67.0
 transformers==4.46.2
 typing_extensions==4.12.2
 tzdata==2024.2
-urllib3 @ file:///croot/urllib3_1727769808118/work
+# urllib3 @ file:///croot/urllib3_1727769808118/work
 Werkzeug==3.0.6
 xxhash==3.5.0
 yarl==1.15.2
