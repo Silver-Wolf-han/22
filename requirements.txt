@@ -92,7 +92,8 @@ torch-pruning==1.5.2
 torchaudio
 # torchaudio==0.13.1
 torchprofile==0.0.4
-torchvision==0.14.1
+torchvision
+# torchvision==0.14.1
 tqdm==4.67.0
 transformers==4.46.2
 typing_extensions==4.12.2
