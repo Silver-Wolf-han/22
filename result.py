@@ -10,6 +10,11 @@ from datasets import load_dataset
 import random
 import numpy as np
 
+from hqq_utils import AutoHQQHFModel, get_size_of_model
+from hqq.utils.patching import recommended_inductor_config_setter
+
+from quant_cfg import get_quant_config
+
 from huggingface_hub import login
 
 login(token="")
@@ -310,6 +315,7 @@ def main():
 
     # Optional: enable prefill_forward if custom generate() is used
     model.prefill_forward = model.forward
+    model.forward = torch.compile(model.forward, mode='max-autotune', dynamic=False, fullgraph=True)
 
     # Purning
     apply_head_pruning(model, heads_per_layer=2)
